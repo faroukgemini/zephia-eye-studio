@@ -35,7 +35,7 @@ export function ExportModal() {
     <div className="modal-bg" onPointerDown={(e) => { if (e.target === e.currentTarget) setOpen(false) }}>
       <div className="modal" data-testid="export-modal">
         <h3>Export LED frames</h3>
-        <p className="mut">Per-frame LED bitmaps as arrays of hex rows — ready to stream to the Zephia {project.screen.w}×{project.screen.h} matrix.</p>
+        <p className="mut">Per-frame LED bitmaps (hex rows) plus per-LED brightness 0–255 — ready to stream to the Zephia {project.screen.w}×{project.screen.h} matrix.</p>
         <div className="seg">
           <button className={scope === 'anim' ? 'on' : ''} onClick={() => setScope('anim')}>Animation</button>
           <button className={scope === 'seq' ? 'on' : ''} onClick={() => setScope('seq')}>Sequence</button>

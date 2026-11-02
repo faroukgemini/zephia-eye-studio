@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { useProject, getProject } from '../store'
+import { getProject, useProject } from '../store'
 import { onFrame } from '../engine/clock'
-import { rasterize } from '../engine/raster'
+import { paintDrawing, renderFrame } from '../engine/raster'
 import { getMask } from '../engine/geometry'
-import type { RenderState } from '../types'
+import { ledLook } from '../engine/fill'
+import type { DotShape, Project, RenderState } from '../types'
 
 const hexRgb = (h: string): [number, number, number] => {
   const n = parseInt(h.replace('#', ''), 16)
@@ -19,7 +20,100 @@ interface Props {
   dim?: number
 }
 
-/** LED matrix renderer: vector eyes -> LED grid -> canvas dots. */
+function qByte(n: number) {
+  if (n >= 252) return 255
+  if (n <= 3) return 0
+  return Math.round(n / 8) * 8
+}
+
+function drawGlyph(ctx: CanvasRenderingContext2D, shape: DotShape, x: number, y: number, r: number) {
+  ctx.beginPath()
+  if (shape === 'square') {
+    ctx.rect(x - r, y - r, r * 2, r * 2)
+    ctx.fill()
+    return
+  }
+  if (shape === 'diamond') {
+    ctx.moveTo(x, y - r)
+    ctx.lineTo(x + r, y)
+    ctx.lineTo(x, y + r)
+    ctx.lineTo(x - r, y)
+    ctx.closePath()
+    ctx.fill()
+    return
+  }
+  if (shape === 'ring') {
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.arc(x, y, Math.max(0.6, r * 0.55), 0, Math.PI * 2, true)
+    ctx.fill('evenodd')
+    return
+  }
+  if (shape === 'x' || shape === 'plus') {
+    ctx.strokeStyle = ctx.fillStyle
+    ctx.lineWidth = Math.max(1.4, r * 0.55)
+    ctx.lineCap = 'round'
+    const d = r * (shape === 'plus' ? 0.92 : 0.78)
+    ctx.beginPath()
+    if (shape === 'x') {
+      ctx.moveTo(x - d, y - d); ctx.lineTo(x + d, y + d)
+      ctx.moveTo(x + d, y - d); ctx.lineTo(x - d, y + d)
+    } else {
+      ctx.moveTo(x - d, y); ctx.lineTo(x + d, y)
+      ctx.moveTo(x, y - d); ctx.lineTo(x, y + d)
+    }
+    ctx.stroke()
+    return
+  }
+  ctx.arc(x, y, r, 0, Math.PI * 2)
+  ctx.fill()
+}
+
+function makeCircleSprite(color: string) {
+  const S = 96
+  const c = document.createElement('canvas')
+  c.width = c.height = S
+  const g = c.getContext('2d')!
+  const r = S / 2
+  const [cr, cg, cb] = color.match(/\d+/g)!.map(Number)
+  const fall = g.createRadialGradient(r, r, 0, r, r, r)
+  fall.addColorStop(0, 'rgba(255,255,255,1)')
+  fall.addColorStop(0.3, `rgba(${cr},${cg},${cb},1)`)
+  fall.addColorStop(0.42, `rgba(${cr},${cg},${cb},0.95)`)
+  fall.addColorStop(0.5, `rgba(${cr},${cg},${cb},0)`)
+  fall.addColorStop(1, `rgba(${cr},${cg},${cb},0)`)
+  g.fillStyle = fall
+  g.fillRect(0, 0, S, S)
+  return c
+}
+
+function frameKey(project: Project, state: RenderState, dim: number) {
+  const p = state.pose
+  let g = 0
+  for (const s of project.shapes) {
+    g = (g + s.points.length + (s.closed ? 1 : 0) + (s.smooth ? 2 : 0) + Math.round(s.stroke * 100)) | 0
+    for (const pt of s.points) g = (Math.imul(g, 33) + Math.round(pt.x * 1000) + Math.round(pt.y * 997)) | 0
+    const f = s.fill
+    if (f) {
+      g = (g + Math.round(f.alpha * 100) + Math.round(f.feather * 80) + Math.round(f.angle) + f.kind.charCodeAt(0) + f.color.charCodeAt(1)) | 0
+      for (const st of f.stops ?? []) g = (g + Math.round(st.offset * 100) + Math.round(st.alpha * 50) + (st.color?.charCodeAt(2) ?? 0)) | 0
+    }
+  }
+  const r = project.render
+  const a = r.alpha
+  const grid = r.grid
+  return [
+    state.layers.map((l) => l.shapeId + l.w.toFixed(3)).join(','),
+    p.x.toFixed(3), p.y.toFixed(3), p.rot.toFixed(2), p.scale.toFixed(3), p.squash.toFixed(3), p.blink.toFixed(3), p.curve.toFixed(3),
+    dim, r.preview, a.mode, a.low, a.mid, a.high, a.threshold, a.lowShape, a.midShape, a.highShape,
+    grid.mode, grid.pitchMm, grid.dotSize, grid.onShape, grid.showOff ? 1 : 0, grid.offColor,
+    project.screen.w, project.screen.h, project.screen.shape, project.screen.color,
+    project.rig.shapeId, project.rig.mirror ? 1 : 0, project.rig.spacing, project.rig.size,
+    project.rig.rightOffset.x, project.rig.rightOffset.y, project.rig.rightOffset.rot,
+    g,
+  ].join('|')
+}
+
+/** LED matrix: vector drawing sampled onto a dot grid (or shown raw). */
 export function LedScreen({ getState, className = '', overlay, bezel = true, dim = 1 }: Props) {
   const wrap = useRef<HTMLDivElement>(null)
   const cvs = useRef<HTMLCanvasElement>(null)
@@ -47,80 +141,104 @@ export function LedScreen({ getState, className = '', overlay, bezel = true, dim
     const dpr = Math.min(2, window.devicePixelRatio || 1)
     canvas.width = Math.round(dw * dpr)
     canvas.height = Math.round(dh * dpr)
-    const ctx = canvas.getContext('2d')!
-    const W = screen.w, H = screen.h
-    const pitch = (dw * dpr) / W
-    const [cr, cg, cb] = hexRgb(screen.color)
-    const mask = getMask(screen)
-    const dots = pitch >= 4
-    // static layer with unlit LEDs
-    const bg = document.createElement('canvas')
-    bg.width = canvas.width; bg.height = canvas.height
-    const bctx = bg.getContext('2d')!
-    bctx.fillStyle = '#000'; bctx.fillRect(0, 0, bg.width, bg.height)
-    // sprite for lit LED
-    const sr = Math.ceil(pitch)
-    const sprite = document.createElement('canvas')
-    sprite.width = sprite.height = sr * 2
-    const sctx = sprite.getContext('2d')!
-    if (dots) {
-      const g = sctx.createRadialGradient(sr, sr, 0, sr, sr, sr)
-      g.addColorStop(0, `rgba(255,255,255,1)`)
-      g.addColorStop(0.3, `rgba(${cr},${cg},${cb},1)`)
-      g.addColorStop(0.42, `rgba(${cr},${cg},${cb},0.95)`)
-      g.addColorStop(0.5, `rgba(${cr},${cg},${cb},0)`)
-      sctx.fillStyle = g
-      sctx.fillRect(0, 0, sr * 2, sr * 2)
-      const off = document.createElement('canvas')
-      off.width = off.height = sr * 2
-      const octx = off.getContext('2d')!
-      octx.fillStyle = 'rgb(30,32,36)'
-      octx.beginPath(); octx.arc(sr, sr, pitch * 0.34, 0, Math.PI * 2); octx.fill()
-      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (mask[y * W + x]) bctx.drawImage(off, (x + 0.5) * pitch - sr, (y + 0.5) * pitch - sr)
-    } else {
-      const id = bctx.createImageData(W, H)
-      for (let i = 0; i < W * H; i++) { const v = mask[i] ? 18 : 0; id.data[i * 4] = v; id.data[i * 4 + 1] = v + 1; id.data[i * 4 + 2] = v + 2; id.data[i * 4 + 3] = 255 }
-      const t = document.createElement('canvas'); t.width = W; t.height = H
-      t.getContext('2d')!.putImageData(id, 0, 0)
-      bctx.imageSmoothingEnabled = false
-      bctx.drawImage(t, 0, 0, bg.width, bg.height)
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })!
+    const sprites = new Map<string, HTMLCanvasElement>()
+    const circleSprite = (color: string) => {
+      let s = sprites.get(color)
+      if (s) return s
+      s = makeCircleSprite(color)
+      sprites.set(color, s)
+      if (sprites.size > 80) sprites.delete(sprites.keys().next().value!)
+      return s
     }
-    const small = document.createElement('canvas'); small.width = W; small.height = H
-    const sm = small.getContext('2d')!
-    const img = sm.createImageData(W, H)
-    const buf = new Uint8Array(W * H)
     let lastSig = ''
-    let lastProj: unknown = null
     const stop = onFrame(() => {
       const proj = getProject()
       const st = getRef.current()
-      const p = st.pose
-      const sig = `${st.layers.map((l) => l.shapeId + l.w.toFixed(3)).join(',')}|${p.x.toFixed(4)},${p.y.toFixed(4)},${p.rot.toFixed(3)},${p.scale.toFixed(4)},${p.squash.toFixed(4)},${p.blink.toFixed(4)},${p.curve.toFixed(3)}|${dim}`
-      if (sig === lastSig && (proj as any) === (lastProj as any)) return
-      lastSig = sig; lastProj = proj
-      rasterize(proj, st, buf)
+      const sig = frameKey(proj, st, dim)
+      if (sig === lastSig) return
+      lastSig = sig
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
+      ctx.filter = 'none'
       ctx.globalAlpha = 1
-      ctx.drawImage(bg, 0, 0)
-      if (dots) {
-        for (let y = 0; y < H; y++) {
-          for (let x = 0; x < W; x++) {
-            const b = buf[y * W + x]
-            if (b < 6) continue
-            ctx.globalAlpha = (b / 255) * dim
-            ctx.drawImage(sprite, (x + 0.5) * pitch - sr, (y + 0.5) * pitch - sr)
+      ctx.globalCompositeOperation = 'source-over'
+      if (proj.render.preview === 'drawing') {
+        ctx.imageSmoothingEnabled = true
+        paintDrawing(ctx, proj, st, canvas.width, canvas.height)
+        return
+      }
+      const W = proj.screen.w
+      const H = proj.screen.h
+      const frame = renderFrame(proj, st)
+      const pitch = canvas.width / W
+      const mask = getMask(proj.screen)
+      const grid = proj.render.grid
+      ctx.imageSmoothingEnabled = pitch >= 3.5
+      ctx.fillStyle = '#000'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      if (pitch < 3.5) {
+        const img = ctx.createImageData(W, H)
+        const d = img.data
+        const [or, og, ob] = hexRgb(grid.offColor)
+        for (let i = 0; i < W * H; i++) {
+          if (!mask[i]) continue
+          const look = ledLook(frame.rgba[i * 4 + 3], proj.render)
+          const o = i * 4
+          if (!look) {
+            if (grid.showOff) { d[o] = or; d[o + 1] = og; d[o + 2] = ob; d[o + 3] = 255 }
+            continue
+          }
+          const k = look.opacity * dim
+          d[o] = frame.rgba[o] * k
+          d[o + 1] = frame.rgba[o + 1] * k
+          d[o + 2] = frame.rgba[o + 2] * k
+          d[o + 3] = 255
+        }
+        const t = document.createElement('canvas')
+        t.width = W; t.height = H
+        t.getContext('2d')!.putImageData(img, 0, 0)
+        ctx.imageSmoothingEnabled = false
+        ctx.drawImage(t, 0, 0, canvas.width, canvas.height)
+        return
+      }
+      if (grid.showOff) {
+        const offR = pitch * 0.34 * Math.min(1.15, grid.dotSize)
+        ctx.fillStyle = grid.offColor
+        ctx.beginPath()
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+          if (!mask[y * W + x]) continue
+          const cx = (x + 0.5) * pitch
+          const cy = (y + 0.5) * pitch
+          ctx.moveTo(cx + offR, cy)
+          ctx.arc(cx, cy, offR, 0, Math.PI * 2)
+        }
+        ctx.fill()
+      }
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const i = y * W + x
+          if (!mask[i]) continue
+          const look = ledLook(frame.rgba[i * 4 + 3], proj.render)
+          if (!look) continue
+          const cr = qByte(frame.rgba[i * 4])
+          const cg = qByte(frame.rgba[i * 4 + 1])
+          const cb = qByte(frame.rgba[i * 4 + 2])
+          const color = `rgb(${cr},${cg},${cb})`
+          const cx = (x + 0.5) * pitch
+          const cy = (y + 0.5) * pitch
+          ctx.globalAlpha = Math.max(0, Math.min(1, look.opacity * dim))
+          if (look.glyph === 'circle') {
+            const sprite = circleSprite(color)
+            const dest = pitch * 2 * grid.dotSize * look.scale
+            ctx.drawImage(sprite, cx - dest / 2, cy - dest / 2, dest, dest)
+          } else {
+            ctx.fillStyle = color
+            ctx.strokeStyle = color
+            drawGlyph(ctx, look.glyph, cx, cy, pitch * 0.4 * grid.dotSize * look.scale)
           }
         }
-        ctx.globalAlpha = 1
-      } else {
-        const d = img.data
-        for (let i = 0; i < W * H; i++) {
-          const b = (buf[i] / 255) * dim
-          d[i * 4] = cr * b; d[i * 4 + 1] = cg * b; d[i * 4 + 2] = cb * b; d[i * 4 + 3] = buf[i] > 5 ? 255 : 0
-        }
-        sm.putImageData(img, 0, 0)
-        ctx.imageSmoothingEnabled = false
-        ctx.drawImage(small, 0, 0, canvas.width, canvas.height)
       }
+      ctx.globalAlpha = 1
     })
     return stop
   }, [dw, dh, screen, dim])

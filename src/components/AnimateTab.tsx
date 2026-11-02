@@ -163,12 +163,13 @@ export function AnimateTab() {
   }
   const dupAnim = () => {
     const id = uid('anim')
-    update((d) => {
-      const c = structuredClone(d.animations.find((x) => x.id === anim.id)!)
-      c.id = id; c.name += '_copy'
-      for (const p of PARAMS) c.tracks[p].keys.forEach((k) => (k.id = uid('k')))
-      d.animations.push(c); d.activeAnimId = id
-    })
+    const src = project.animations.find((x) => x.id === anim.id)
+    if (!src) return
+    const c = structuredClone(src)
+    c.id = id
+    c.name += '_copy'
+    for (const p of PARAMS) c.tracks[p].keys.forEach((k) => (k.id = uid('k')))
+    update((d) => { d.animations.push(c); d.activeAnimId = id })
   }
   const delAnim = () => {
     if (project.animations.length <= 1) return flash('Keep at least one animation')

@@ -1,4 +1,5 @@
 import type { Pt, Shape } from '../types'
+import { defaultFill } from './fill'
 import { uid } from './geometry'
 
 /** Parse an SVG file's first drawable element into a normalised anchor-point shape. */
@@ -34,6 +35,7 @@ export function importSvgShape(text: string, fileName: string, samples = 28): Sh
       name: fileName.replace(/\.svg$/i, '') || 'svg shape',
       points: pts.map((p) => ({ x: +((p.x - cx) * sc).toFixed(3), y: +((p.y - cy) * sc).toFixed(3) })),
       closed, smooth: true, stroke: closed ? 0 : 0.25,
+      fill: defaultFill(),
     }
   } finally {
     svg.remove()
