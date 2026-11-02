@@ -226,6 +226,13 @@ td.acts { text-align: right; white-space: nowrap; } td.acts .link { opacity: .0;
 /* modals */
 .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(4px); display: grid; place-items: center; z-index: 50; }
 .modal { width: min(540px, 92vw); background: var(--panel); border: 1px solid var(--line2); border-radius: 16px; padding: 22px; box-shadow: 0 30px 80px rgba(0,0,0,.6); color: var(--tx); }
+.modal.wide { width: min(640px, 94vw); max-height: min(880px, 92vh); overflow: auto; }
+.export-progress { margin-top: 12px; }
+.export-progress-bar { height: 8px; border-radius: 99px; background: var(--line2); overflow: hidden; }
+.export-progress-bar i { display: block; height: 100%; background: var(--acc); }
+.export-progress span { display: block; margin-top: 6px; color: var(--mut); font-size: 12px; font-family: var(--mono); }
+.modal .field .seg { flex: 1; }
+.modal .field .seg.tiny button { padding: 4px 10px; }
 .modal h3 { margin: 0 0 4px; font-size: 18px; } .modal p { margin: 0 0 14px; }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; } .modal .grp { display: flex; gap: 8px; }
 .saved-list { max-height: 220px; overflow: auto; margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
