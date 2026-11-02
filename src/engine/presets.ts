@@ -1,4 +1,5 @@
 import { DEFAULT_POSE, PARAMS, type Animation, type Easing, type Emotion, type Param, type Project, type Pt, type Sequence, type Shape } from '../types'
+import { defaultFill, defaultRender } from './fill'
 import { uid } from './geometry'
 
 const P = (x: number, y: number): Pt => ({ x, y })
@@ -155,11 +156,12 @@ export function makeDefaultProject(): Project {
     name: 'Zephia · default face',
     screen: { w: 120, h: 32, shape: 'pill', color: '#ffffff' },
     rig: { name: 'zephia_rig', shapeId: 'shape_neutral', mirror: true, spacing: 1, size: 1, rightOffset: { x: 0, y: 0, rot: 0 } },
-    shapes: PRESET_SHAPES.map((s) => structuredClone(s)),
+    shapes: PRESET_SHAPES.map((s) => ({ ...structuredClone(s), fill: defaultFill() })),
     base: { ...DEFAULT_POSE },
     animations,
     sequences: [seq],
     activeAnimId: 'anim_look_around',
     activeSeqId: seq.id,
+    render: defaultRender(),
   }
 }

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { produce } from 'immer'
 import type { Project } from './types'
+import { applyPitch, normalizeRender, normalizeShape } from './engine/fill'
 import { makeDefaultProject, PILL_RES, ROUND_RES } from './engine/presets'
 
 const LS_AUTOSAVE = 'zephia-eye-studio:autosave:v1'
@@ -10,11 +11,21 @@ export function normalizeProject(raw: any): Project {
   const def = makeDefaultProject()
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.animations) || !Array.isArray(raw.shapes) || !raw.screen || !raw.rig)
     throw new Error('Not a Zephia Eye Studio project file')
-  const p: Project = { ...def, ...raw, base: { ...def.base, ...raw.base }, screen: { ...def.screen, ...raw.screen }, rig: { ...def.rig, ...raw.rig } }
+  const p: Project = {
+    ...def,
+    ...raw,
+    base: { ...def.base, ...raw.base },
+    screen: { ...def.screen, ...raw.screen },
+    rig: { ...def.rig, ...raw.rig, rightOffset: { ...def.rig.rightOffset, ...(raw.rig.rightOffset ?? {}) } },
+    shapes: raw.shapes.map(normalizeShape),
+    render: normalizeRender(raw.render),
+  }
+  if (!p.shapes.length) p.shapes = def.shapes
   if (!p.sequences?.length) p.sequences = def.sequences
   if (!p.animations.find((a) => a.id === p.activeAnimId)) p.activeAnimId = p.animations[0]?.id ?? ''
   if (!p.sequences.find((s) => s.id === p.activeSeqId)) p.activeSeqId = p.sequences[0].id
   if (!p.shapes.find((s) => s.id === p.rig.shapeId)) p.rig.shapeId = p.shapes[0].id
+  if (p.render.grid.mode === 'pitch') applyPitch(p)
   return p
 }
 
@@ -69,6 +80,10 @@ export function setResolution(d: Project, w: number, h: number) {
 }
 export function setScreenShape(d: Project, shape: 'pill' | 'round') {
   d.screen.shape = shape
+  if (d.render?.grid.mode === 'pitch') {
+    applyPitch(d)
+    return
+  }
   const list = shape === 'round' ? ROUND_RES : PILL_RES
   if (!list.some((r) => r.w === d.screen.w && r.h === d.screen.h)) setResolution(d, list[0].w, list[0].h)
 }

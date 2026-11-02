@@ -60,6 +60,66 @@ export interface Pt {
   y: number
 }
 
+export const DOT_SHAPES = ['circle', 'square', 'x', 'plus', 'ring', 'diamond'] as const
+export type DotShape = (typeof DOT_SHAPES)[number]
+
+export interface GradientStop {
+  /** 0..1 along the gradient */
+  offset: number
+  color: string
+  /** 0..1 */
+  alpha: number
+}
+
+/** Solid colour or gradient painted into the vector drawing, with its own alpha. */
+export interface ShapeFill {
+  kind: 'solid' | 'linear' | 'radial'
+  color: string
+  /** 0..1, solid fills */
+  alpha: number
+  /** Degrees. 0 = left → right, 90 = top → bottom. */
+  angle: number
+  stops: GradientStop[]
+  /** 0..1 soft edge */
+  feather: number
+}
+
+export type AlphaMode = 'dim' | 'shape' | 'threshold' | 'both'
+
+/** How the drawing's alpha is sampled onto each LED. */
+export interface AlphaMap {
+  mode: AlphaMode
+  /** below this the LED is off (shape / both) */
+  low: number
+  /** low..mid → low glyph, mid..high → mid glyph, ≥ high → full glyph */
+  mid: number
+  high: number
+  /** on/off cut for threshold mode, 0..1 */
+  threshold: number
+  lowShape: DotShape
+  midShape: DotShape
+  highShape: DotShape
+}
+
+export interface LedGrid {
+  /** count = screen.w × screen.h; pitch = derive columns/rows from pitchMm */
+  mode: 'count' | 'pitch'
+  /** centre-to-centre spacing in millimetres */
+  pitchMm: number
+  /** 1 = the original LED sprite scale */
+  dotSize: number
+  onShape: DotShape
+  showOff: boolean
+  offColor: string
+}
+
+export interface RenderConfig {
+  /** leds = dot grid overlay; drawing = the raw vector */
+  preview: 'leds' | 'drawing'
+  alpha: AlphaMap
+  grid: LedGrid
+}
+
 export interface Shape {
   id: string
   name: string
@@ -69,6 +129,7 @@ export interface Shape {
   /** 0 = filled shape, >0 = stroked line of this width (shape units) */
   stroke: number
   builtin?: boolean
+  fill?: ShapeFill
 }
 
 export interface Keyframe {
@@ -132,6 +193,7 @@ export interface Project {
   sequences: Sequence[]
   activeAnimId: string
   activeSeqId: string
+  render: RenderConfig
 }
 
 /** What the LED screen needs to draw one frame. */

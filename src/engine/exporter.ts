@@ -16,24 +16,45 @@ function header(project: Project, name: string, kind: string, fps: number, frame
     matrix: {
       width: s.w, height: s.h, shape: s.shape,
       bitOrder: 'msb-left', rowEncoding: 'hex', charsPerRow: Math.ceil(s.w / 4), onThreshold: threshold,
-      note: 'Each frame is `height` hex strings; each string packs `width` LEDs, leftmost LED = MSB of first nibble. LEDs outside the visor mask are 0.',
+      note: 'Each frame is `height` hex strings; each string packs `width` LEDs, leftmost LED = MSB of first nibble. LEDs outside the visor mask are 0. `brightness` is a parallel grid of integers 0–255 (row-major) after alpha mapping: dim/shape store coverage, threshold stores 0 or 255.',
+      brightnessEncoding: 'uint8-rows',
       panel: s.shape === 'pill'
         ? { pxWidth: PANEL.pxW, pxHeight: PANEL.pxH, activeAreaMm: [PANEL.mmW, PANEL.mmH], pxPerLed: [PANEL.pxW / s.w, PANEL.pxH / s.h] }
         : undefined,
     },
     fps, frameCount, durationMs,
     rig: { name: project.rig.name, mirror: project.rig.mirror },
+    sampling: {
+      alphaMode: project.render.alpha.mode,
+      thresholds: {
+        low: project.render.alpha.low,
+        mid: project.render.alpha.mid,
+        high: project.render.alpha.high,
+        on: project.render.alpha.threshold,
+      },
+      grid: { mode: project.render.grid.mode, pitchMm: project.render.grid.pitchMm, dotSize: project.render.grid.dotSize, onShape: project.render.grid.onShape },
+    },
   }
+}
+
+function brightnessRows(buf: Uint8Array, w: number, h: number): number[][] {
+  const rows: number[][] = []
+  for (let y = 0; y < h; y++) {
+    const row = new Array<number>(w)
+    for (let x = 0; x < w; x++) row[x] = buf[y * w + x]
+    rows.push(row)
+  }
+  return rows
 }
 
 export function exportAnimationFrames(project: Project, anim: Animation, o: ExportOpts) {
   const n = Math.max(1, Math.round(anim.duration * o.fps))
-  const frames: { i: number; t: number; rows: string[] }[] = []
+  const frames: { i: number; t: number; rows: string[]; brightness: number[][] }[] = []
   const buf = new Uint8Array(project.screen.w * project.screen.h)
   for (let i = 0; i < n; i++) {
     const t = Math.min(anim.duration, i / o.fps)
     rasterize(project, stateForAnimation(project, anim, t, false), buf)
-    frames.push({ i, t: Math.round(t * 1000), rows: toHexRows(buf, project.screen.w, project.screen.h, o.threshold) })
+    frames.push({ i, t: Math.round(t * 1000), rows: toHexRows(buf, project.screen.w, project.screen.h, o.threshold), brightness: brightnessRows(buf, project.screen.w, project.screen.h) })
   }
   return { ...header(project, anim.name, 'animation', o.fps, n, Math.round(anim.duration * 1000), o.threshold), emotion: anim.emotion, frames }
 }
@@ -42,12 +63,12 @@ export function exportSequenceFrames(project: Project, seqId: string, o: ExportO
   const seq = project.sequences.find((s) => s.id === seqId) ?? project.sequences[0]
   const { placed, total } = layoutClips(project, seq.clips)
   const n = Math.max(1, Math.round(total * o.fps))
-  const frames: { i: number; t: number; rows: string[] }[] = []
+  const frames: { i: number; t: number; rows: string[]; brightness: number[][] }[] = []
   const buf = new Uint8Array(project.screen.w * project.screen.h)
   for (let i = 0; i < n; i++) {
     const t = Math.min(total, i / o.fps)
     rasterize(project, evalPlaced(project, placed, total, t), buf)
-    frames.push({ i, t: Math.round(t * 1000), rows: toHexRows(buf, project.screen.w, project.screen.h, o.threshold) })
+    frames.push({ i, t: Math.round(t * 1000), rows: toHexRows(buf, project.screen.w, project.screen.h, o.threshold), brightness: brightnessRows(buf, project.screen.w, project.screen.h) })
   }
   return {
     ...header(project, seq.name, 'sequence', o.fps, n, Math.round(total * 1000), o.threshold),

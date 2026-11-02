@@ -54,6 +54,8 @@ function TopPreview() {
   const tab = useUI((s) => s.tab)
   const showPath = useUI((s) => s.showPath)
   const screen = useProject((s) => s.project.screen)
+  const preview = useProject((s) => s.project.render.preview)
+  const update = useProject((s) => s.update)
   const getState = useMemo(() => {
     if (tab === 'animate') return (): RenderState => {
       const p = getProject()
@@ -69,7 +71,17 @@ function TopPreview() {
   }, [tab])
   return (
     <section className="preview" data-testid="preview">
-      <div className="pv-tags"><span>LEFT EYE</span><span className="mid">{screen.w} × {screen.h} LED · {screen.shape === 'round' ? 'round' : 'pill'} screen{screen.shape === 'pill' ? ' · 480×128 px · 95×25 mm' : ''}</span><span>RIGHT EYE</span></div>
+      <div className="pv-tags">
+        <span>LEFT EYE</span>
+        <div className="pv-mid">
+          <span className="mid">{screen.w} × {screen.h} LED · {screen.shape === 'round' ? 'round' : 'pill'} screen{screen.shape === 'pill' ? ' · 480×128 px · 95×25 mm' : ''}</span>
+          <div className="seg tiny">
+            <button className={preview === 'drawing' ? 'on' : ''} onClick={() => update((d) => { d.render.preview = 'drawing' })}>Drawing</button>
+            <button className={preview === 'leds' ? 'on' : ''} onClick={() => update((d) => { d.render.preview = 'leds' })}>LEDs</button>
+          </div>
+        </div>
+        <span>RIGHT EYE</span>
+      </div>
       <LedScreen getState={getState} overlay={tab === 'animate' && showPath ? <MotionPath /> : undefined} />
     </section>
   )

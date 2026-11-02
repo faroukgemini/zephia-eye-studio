@@ -19,6 +19,8 @@ function Bar({ label, v, unit, color, testId }: { label: string; v: number; unit
 export function SimulatorTab() {
   useSyncExternalStore(sim.subscribe, sim.getVersion)
   const screen = useProject((s) => s.project.screen)
+  const preview = useProject((s) => s.project.render.preview)
+  const update = useProject((s) => s.update)
   const [text, setText] = useState('')
   const [, setTick] = useState(0)
   const wave = useRef<HTMLCanvasElement>(null)
@@ -69,7 +71,7 @@ export function SimulatorTab() {
       <div className="sim-stage">
         <div className="sim-top">
           <div><div className="eyebrow">ZEPHIA · COMPANION ROBOT</div><h2>Simulator</h2></div>
-          <div className="sim-tags"><span className="tag">LED {screen.w}×{screen.h}</span><span className="tag">{round ? 'round' : 'pill'} visor</span><span className="tag live"><i />LIVE</span></div>
+          <div className="sim-tags"><span className="tag">LED {screen.w}×{screen.h}</span><span className="tag">{round ? 'round' : 'pill'} visor</span><button className="tag" data-testid="sim-preview" onClick={() => update((d) => { d.render.preview = d.render.preview === 'leds' ? 'drawing' : 'leds' })}>{preview === 'leds' ? 'LED overlay' : 'Raw drawing'}</button><span className="tag live"><i />LIVE</span></div>
         </div>
 
         <div className="ball-area">
